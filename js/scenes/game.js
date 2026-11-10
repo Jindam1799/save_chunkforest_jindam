@@ -227,7 +227,7 @@
         const ch = this.slopes[r + ',' + c];
         if (!ch) continue;
         const sY = this.slopeSurfaceY(ch, r, lx);
-        if (yb >= sY - 5 && yb <= sY + 9) return { s: sY, down: ch === '/' ? -1 : 1 };
+        if (yb >= sY - 5 && yb <= sY + 9) return { s: sY, down: ch === '/' ? -1 : 1, r, c };
       }
       return null;
     }
@@ -247,6 +247,11 @@
       if (!body || !body.enable || body.velocity.y < -1) return null;
       const hit = this.slopeAt(body.center.x, body.bottom);
       if (!hit) return null;
+      // 경사로 꼭대기가 블록·발판과 이어지는 곳: 앞발이 그 위에 올라서 있으면 그 높이로 (블록 모서리에 발이 끼어 멈추던 문제)
+      const m = this.stage.map, top = hit.r * 16, side = hit.down < 0 ? 1 : -1;   // '/'는 오른쪽, '\'는 왼쪽이 오르막
+      const nb = m[hit.r] && m[hit.r][hit.c + side];
+      const footIn = side > 0 ? body.right > (hit.c + 1) * 16 - 3 : body.left < hit.c * 16 + 3;
+      if (footIn && nb && '#=GC'.indexOf(nb) >= 0) hit.s = Math.min(hit.s, top);
       body.y = hit.s - body.height;
       if (body.velocity.y > 0) body.velocity.y = 0;
       return hit;
@@ -596,6 +601,11 @@
     shoot(time) {
       const p = this.player, dir = this.facing, power = time < this.powerUntil;
       const sx = p.x + dir * 8, sy = p.y + 3;
+      // 벽에 붙어서 쏘면 탄이 벽 속(또는 벽 너머)에서 생겨 뚫고 나가던 문제: 벽 앞에서 바로 막힘
+      if (this.wallBetween(p.x, sx + dir * 4, sy)) {
+        this.fxLeaf.explode(3, p.x + dir * 6, sy); this.shootPoseUntil = time + 110;
+        DT.Audio.sfx('tick'); return;
+      }
       const n = this.S.multishot;
       const vys = n === 1 ? [T.SEED_VY] : n === 2 ? [T.SEED_VY, T.SEED_VY - 85] : [T.SEED_VY + 30, T.SEED_VY - 50, T.SEED_VY - 130];
       const mode = this.heroDef.shot;
@@ -1545,6 +1555,10 @@
     /* ── 몬스터 탄 ── */
     fireShot(key, x, y, vx, vy, opt) {
       opt = opt || {};
+      if (!opt.noWallCheck && this.solidAt(x, y)) {   // 몬스터가 벽에 붙어 쏘면 벽 속에서 생기지 않게: 그 자리에서 퍽
+        this.fxPx.explode(4, x, y);
+        return { isShot: true, active: false };   // 호출한 쪽이 속성을 붙여도 문제없는 빈 탄
+      }
       const sh = this.eshots.create(x, y, key, 0);
       sh.isShot = true; sh.bornAt = this.time.now; sh.life = opt.life || 2600;
       sh.solidOnly = !!opt.solidOnly; sh.unbreakable = !!opt.unbreakable;
@@ -2166,6 +2180,13 @@
         DT.Audio.sfx('collect'); h.destroy();
       });
       this.tweens.add({ targets: h, alpha: 0.3, delay: 6000, duration: 120, yoyo: true, repeat: 8, onComplete: () => h.active && h.destroy() });
+    }
+    // 두 점 사이(같은 높이)에 단단한 블록(#)이나 바깥 벽이 있는지
+    wallBetween(x0, x1, y) {
+      if (x1 < 2 || x1 > DT.W - 2) return true;
+      const step = x1 > x0 ? 4 : -4;
+      for (let x = x0; step > 0 ? x <= x1 : x >= x1; x += step) if (this.solidAt(x, y)) return true;
+      return this.solidAt(x1, y);
     }
     solidAt(x, y) {
       const m = this.stage.map, r = Math.floor(y / 16), c = Math.floor(x / 16);

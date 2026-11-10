@@ -175,7 +175,7 @@ const ARCH = {
       let c = 1 + Math.floor(R() * 3) + (i % 2) * 2;
       while (c < 18) {
         const w = 2 + Math.floor(R() * 2);
-        const rr = r + (R() < 0.3 ? 1 : 0);
+        const rr = r - (R() < 0.3 ? 1 : 0);   // 아래로는 내리지 않음 (바닥과 한 칸 틈이 생기지 않게)
         for (let k = 0; k < w && c + k <= 18; k++) put(m, rr, c + k, '=');
         c += w + 2 + Math.floor(R() * 2);
       }
@@ -202,7 +202,7 @@ ARCH.wrap = (m, R, layout) => {
 /* ── 보물상자: 구체를 밀어 놓고 밟고 올라가야만 닿는 높은 받침대 위 (안 해도 클리어 가능) ── */
 function addTreasure(m, R) {
   const left = R() < 0.5;
-  const X = left ? 2 : 16;
+  const X = left ? 1 : 17;   // 받침대를 벽에 딱 붙임 (벽과 받침대 사이 한 칸 틈에 몬스터가 갇히지 않게)
   const near = left ? [1, X + 7] : [X - 6, 18], wide = left ? [1, X + 9] : [X - 8, 18];
   const keep = (ch) => ch === 'P';
   for (let r = 2; r <= 13; r++) {
@@ -236,6 +236,17 @@ function makeMap(layout, enemies, R, features, arch, treasure) {
   const hang = [];
   for (let r = 3; r <= 11; r++) for (let c = 2; c < 18; c++) if ((m[r - 1][c] === '=' || m[r - 1][c] === '#') && m[r][c] === '.' && m[r + 1][c] === '.') hang.push([r, c]);
   for (let c = 1; c < 19; c++) if (Math.abs(c - 10) >= 6 && m[13][c] === '.') spots.push([13, c]);
+  // 좁은 구덩이(가로 2칸 이하, 양옆이 블록) · 머리 위가 막힌 한 칸 틈에는 두지 않음 — 들어가면 무조건 다치는 자리
+  const solid = (r, c) => m[r] && (m[r][c] === '#');
+  const trapped = (r, c) => {
+    let a = c, b = c;
+    while (a - 1 >= 0 && !solid(r, a - 1)) a--;
+    while (b + 1 <= 19 && !solid(r, b + 1)) b++;
+    if (b - a + 1 <= 2) return true;
+    const up = m[r - 1] && m[r - 1][c];
+    return up === '=' || up === '#' || up === 'C';
+  };
+  for (let i = spots.length - 1; i >= 0; i--) if (trapped(spots[i][0], spots[i][1])) spots.splice(i, 1);
   // 시작 위치 바로 옆에는 몬스터를 두지 않음
   let pr = 13, pc = 10;
   m.forEach((row, r) => { const c = row.indexOf('P'); if (c >= 0) { pr = r; pc = c; } });
