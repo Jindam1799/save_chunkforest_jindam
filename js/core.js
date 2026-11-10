@@ -1,0 +1,357 @@
+/* 공통 설정·유틸리티. 밸런스 조정은 TUNING 값만 바꾸면 됩니다. */
+(function () {
+  'use strict';
+  const DT = (window.DT = window.DT || {});
+
+  DT.VERSION = '0.7.0';
+  DT.W = 320;   // 논리 해상도 (16px 타일 20 x 15)
+  DT.H = 240;
+  DT.TILE = 16;
+
+  // 화면 크기에 맞춰 내부 배율 결정 → 도트는 선명하게, 한글/한자는 고해상도로
+  DT.computeZoom = function () {
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const fit = Math.min(window.innerWidth / DT.W, window.innerHeight / DT.H) * dpr;
+    return Math.max(2, Math.min(6, Math.ceil(fit)));
+  };
+  DT.Z = DT.computeZoom();
+
+  DT.TUNING = {
+    GRAVITY: 760,
+    PLAYER_SPEED: 92,
+    PLAYER_ACCEL: 0.38,      // 지상 가속 (0~1, 클수록 즉각적)
+    PLAYER_AIR_ACCEL: 0.22,
+    JUMP_VELOCITY: 300,
+    JUMP_CUT: 110,           // 점프 버튼을 일찍 떼면 이 속도로 상승이 잘림
+    COYOTE_MS: 90,           // 발판에서 떨어진 직후에도 점프 허용
+    JUMP_BUFFER_MS: 110,     // 착지 직전 입력도 점프로 인정
+    MAX_FALL: 340,
+
+    SEED_VX: 225,            // 씨앗탄 수평 속도
+    SEED_VY: -95,            // 씨앗탄 발사 시 위쪽 속도 (포물선)
+    SEED_GRAVITY: 470,       // 씨앗탄 전용 중력
+    SEED_LIFE: 1500,
+    FIRE_INTERVAL: 190,      // 연사 간격(ms)
+    FIRE_INTERVAL_POWER: 120,
+    MAX_SEEDS: 4,
+
+    HIT_DECAY_DELAY: 1800,   // 마지막 명중 후 이 시간이 지나면 봉인 게이지 감소
+    HIT_DECAY_STEP: 600,
+    SEAL_TIME: 6500,         // 봉인 유지 시간
+    SEAL_WARN: 2000,         // 풀리기 전 경고 시간
+    ROLL_SPEED: 175,         // 날아가는 구체 속도
+    ROLL_MAX_BOUNCES: 2,     // 벽에 이만큼 튕기면 폭발
+    ROLL_MAX_TIME: 3800,
+    ANGRY_MULT: 1.45,
+
+    MAX_HP_CAP: 6,
+    PUSH_SPEED: 38,          // 구체를 밀 때 속도
+    STRIKE_REACH: 22,        // 드롭킥이 닿는 거리
+    INVINCIBLE_MS: 1600,
+    HURRY_TIME: 50000,       // 일반 스테이지 제한 시간 (다 되면 몬스터가 빨라짐)
+    COMBO_BASE: 500          // 연쇄 n번째 = 500 x n 점
+  };
+
+  DT.SPR = 1.2; // 캐릭터·몬스터 표시 배율
+
+  DT.ENEMY_DEFS = {
+    mush:  { name: '혼동버섯',     hp: 3, speed: 34 },
+    gob:   { name: '먹깨비',       hp: 3, speed: 30 },
+    thief: { name: '단어도둑',     hp: 4, speed: 52 },
+    bird:  { name: '성조새',       hp: 2, speed: 42, fly: true },
+    frog:  { name: '병음개구리',   hp: 3, speed: 30 },
+    snail: { name: '느림보달팽이', hp: 6, speed: 16 },
+    dragon: { name: '불뿜이', hp: 3, speed: 26 },
+    monkey: { name: '던짐원숭이', hp: 3, speed: 30 },
+    puppy:  { name: '똥강아지', hp: 3, speed: 38 },
+    rabbit: { name: '깡총토끼', hp: 3, speed: 40 },
+    bat:    { name: '동굴박쥐', hp: 2, speed: 60, fly: true },
+    hedge:  { name: '가시도치', hp: 4, speed: 28 },
+    lantern: { name: '등불도깨비', hp: 3, speed: 24, fly: true }
+  };
+  DT.ENEMY_CODES = { m: 'mush', k: 'gob', t: 'thief', b: 'bird', f: 'frog', s: 'snail', d: 'dragon', o: 'monkey', p: 'puppy', r: 'rabbit', v: 'bat', h: 'hedge', l: 'lantern' };
+
+  /* ── 로그라이크: 기본 능력치 (처음엔 느리고 사거리가 짧음) ── */
+  DT.BASE_STATS = {
+    dmg: 1, seedVx: 150, fireInterval: 340, move: 82, jump: 300,
+    maxHp: 3, sealTime: 6500, multishot: 1, orbSpeed: 175, orbBounces: 2, magnet: 0, orbLv: 0,
+    blastR: 0, pierce: 0, crit: 0, shotSize: 1, kickReach: 0, pushPow: 1, invBonus: 0, shield: 0,
+    timeBonus: 0, luck: 0, fragLife: 0, hazardSlow: 1, comboMul: 1
+  };
+
+  DT.HEROES = [
+    { id: 'tuk', name: '툭이', title: '새싹 정령', shot: 'arc', orb: 'roll', desc: '포물선을 그리는 씨앗탄\n무엇이든 고르게 잘해요', color: '#a7f070',
+      mods: {} },
+    { id: 'pong', name: '퐁이', title: '물방울 정령', shot: 'line', orb: 'wave', desc: '일직선으로 쏘는 물방울탄\n빠르게 쏘고 빠르게 달려요', color: '#73eff7',
+      mods: { fireInterval: 0.72, move: 1.14, seedVx: 0.86 } },
+    { id: 'doto', name: '도토', title: '도토리 정령', shot: 'roll', orb: 'blast', desc: '바닥을 굴러가는 도토리탄\n한 방이 세고 튼튼해요', color: '#ffcd75',
+      mods: { dmg: 1, fireInterval: 1.25, move: 0.9, maxHp: 1, seedVx: 1.08 } }
+  ];
+
+  // 파워업 카드: 한 장의 효과를 작게 나누고(세분화) 종류를 늘려서, 36스테이지 내내 고를 카드가 남도록
+  // desc의 {탄}은 주인공 탄 이름(씨앗탄/물방울탄/도토리탄)으로 바뀜
+  DT.UPGRADES = [
+    { id: 'power',  name: '씨앗 파워',   desc: '{탄} 공격력 +1',            max: 4, icon: 'seed',   apply: (s) => { s.dmg += 1; } },
+    { id: 'range',  name: '멀리 던지기', desc: '{탄} 사거리 +10%',          max: 6, icon: 'leaf',   apply: (s) => { s.seedVx *= 1.1; } },
+    { id: 'rapid',  name: '빠른 손',     desc: '{탄} 발사 속도 +10%',       max: 6, icon: 'spark',  apply: (s) => { s.fireInterval *= 0.9; } },
+    { id: 'speed',  name: '날쌘 발',     desc: '이동 속도 +6%',             max: 5, icon: 'petal',  apply: (s) => { s.move *= 1.06; } },
+    { id: 'jump',   name: '구름 점프',   desc: '점프력이 조금 높아져요',    max: 2, icon: 'bubble', apply: (s) => { s.jump *= 1.025; } },
+    { id: 'seal',   name: '단단한 봉인', desc: '봉인 유지 시간 +1초',       max: 5, icon: 'orb',    apply: (s) => { s.sealTime += 1000; } },
+    { id: 'heart',  name: '튼튼한 마음', desc: '최대 체력 +1, 모두 회복',   max: 3, icon: 'heart',  apply: (s, run) => { s.maxHp += 1; run.hp = s.maxHp; } },
+    { id: 'orb',    name: '씽씽 구체',   desc: '구체가 조금 더 빠르고 세져요', max: 4, icon: 'ring', apply: (s) => { s.orbSpeed *= 1.06; s.orbLv = (s.orbLv || 0) + 1; if (s.orbLv % 2 === 0) s.orbBounces += 1; s.blastR += 6; } },
+    { id: 'magnet', name: '조각 자석',   desc: '조각을 끌어당기는 거리 +30', max: 4, icon: 'token',  apply: (s) => { s.magnet += 30; } },
+    { id: 'pierce', name: '꿰뚫기',      desc: '{탄}이 몬스터 1마리를 더 뚫고 지나가요', max: 2, icon: 'leaf', apply: (s) => { s.pierce += 1; } },
+    { id: 'crit',   name: '행운의 한 방', desc: '{탄}이 10% 확률로 2배 피해', max: 4, icon: 'star',  apply: (s) => { s.crit += 0.1; } },
+    { id: 'big',    name: '왕{탄}',      desc: '{탄}이 15% 커져서 잘 맞아요', max: 3, icon: 'seed',  apply: (s) => { s.shotSize += 0.15; } },
+    { id: 'reach',  name: '긴 다리',     desc: '드롭킥이 닿는 거리 +5',      max: 3, icon: 'petal',  apply: (s) => { s.kickReach += 5; } },
+    { id: 'push',   name: '힘센 어깨',   desc: '구체를 미는 속도 +20%',      max: 3, icon: 'orb',    apply: (s) => { s.pushPow *= 1.2; } },
+    { id: 'guard',  name: '깜빡 무적',   desc: '다친 뒤 무적 시간 +0.3초',  max: 3, icon: 'bubble', apply: (s) => { s.invBonus += 300; } },
+    { id: 'shield', name: '나뭇잎 방패', desc: '스테이지마다 한 번 공격을 막아 줘요', max: 2, icon: 'leaf', apply: (s) => { s.shield += 1; } },
+    { id: 'time',   name: '느긋한 시계', desc: 'TIME +5초 (몬스터가 늦게 화나요)', max: 4, icon: 'spark', apply: (s) => { s.timeBonus += 5000; } },
+    { id: 'luck',   name: '네잎클로버', desc: '구체로 물리치면 가끔 하트가 나와요', max: 3, icon: 'heart', apply: (s) => { s.luck += 0.06; } },
+    { id: 'frag',   name: '오래 남는 조각', desc: '조각이 사라지는 시간 +2초', max: 3, icon: 'token', apply: (s) => { s.fragLife += 2000; } },
+    { id: 'climb',  name: '가시 늦추기', desc: '진담 점프의 가시가 6% 느리게 올라와요', max: 4, icon: 'leaf', apply: (s) => { s.hazardSlow *= 0.94; } },
+    { id: 'combo',  name: '연쇄 박수',   desc: '연쇄 점수 +20%',            max: 5, icon: 'star',   apply: (s) => { s.comboMul += 0.2; } },
+    { id: 'heal',   name: '꿀물 한 잔',  desc: '체력을 모두 회복',          max: 99, icon: 'heart', apply: (s, run) => { run.hp = s.maxHp; },
+      when: (run) => run.hp < run.stats.maxHp },
+    { id: 'bonus',  name: '보물 주머니', desc: '점수 +3000',                max: 99, icon: 'token', apply: (s, run) => { run.score += 3000; }, filler: true }
+  ];
+  const SHOT_NAME = { tuk: '씨앗탄', pong: '물방울탄', doto: '도토리탄' };
+
+  // 주인공마다 다른 파워업 카드 이름·설명 (없으면 기본값)
+  const HERO_UPG = {
+    tuk: {
+      orb: ['씽씽 구체', '구르는 새싹 구체가 더 빠르고 더 많이 튕겨요'], pierce: ['가시 씨앗', '씨앗탄이 몬스터 1마리를 더 뚫고 지나가요'],
+      shield: ['나뭇잎 방패', '스테이지마다 한 번 공격을 막아 줘요']
+    },
+    pong: {
+      power: ['물방울 파워', '물방울탄 공격력 +1'], range: ['물줄기 늘리기', '물방울탄 사거리 +10%'],
+      rapid: ['연속 물방울', '물방울탄 발사 속도 +10%'], speed: ['물살 달리기', '이동 속도 +6%'],
+      jump: ['퐁퐁 점프', '점프력이 조금 높아져요'], seal: ['물거품 봉인', '봉인 유지 시간 +1초'],
+      heart: ['맑은 마음', '최대 체력 +1, 모두 회복'], orb: ['큰 물결', '물결이 더 빠르고 더 오래 흘러요'],
+      magnet: ['소용돌이 자석', '조각을 끌어당기는 거리 +30'], heal: ['시원한 샘물', '체력을 모두 회복'],
+      pierce: ['물줄기 관통', '물방울탄이 몬스터 1마리를 더 뚫고 지나가요'], big: ['왕물방울', '물방울탄이 15% 커져서 잘 맞아요'],
+      shield: ['물방울 방패', '스테이지마다 한 번 공격을 막아 줘요'], luck: ['무지개 물방울', '구체로 물리치면 가끔 하트가 나와요']
+    },
+    doto: {
+      power: ['도토리 파워', '도토리탄 공격력 +1'], range: ['멀리 굴리기', '도토리탄 사거리 +10%'],
+      rapid: ['빠른 굴리기', '도토리탄 발사 속도 +10%'], speed: ['데굴 달리기', '이동 속도 +6%'],
+      jump: ['도토리 점프', '점프력이 조금 높아져요'], seal: ['껍데기 봉인', '봉인 유지 시간 +1초'],
+      heart: ['단단한 마음', '최대 체력 +1, 모두 회복'], orb: ['대폭발', '도토리 구체의 폭발 범위가 넓어져요'],
+      magnet: ['도토리 자석', '조각을 끌어당기는 거리 +30'], heal: ['도토리묵 한 접시', '체력을 모두 회복'],
+      pierce: ['단단 도토리', '도토리탄이 몬스터 1마리를 더 뚫고 지나가요'], big: ['왕도토리', '도토리탄이 15% 커져서 잘 맞아요'],
+      shield: ['껍질 방패', '스테이지마다 한 번 공격을 막아 줘요']
+    }
+  };
+  DT.upgradeText = function (u, hero) {
+    const t = (HERO_UPG[hero] || {})[u.id];
+    const r = t ? { name: t[0], desc: t[1] } : { name: u.name, desc: u.desc };
+    const sn = SHOT_NAME[hero] || '씨앗탄';
+    r.name = r.name.replace('{탄}', sn); r.desc = r.desc.replace(/\{탄\}/g, sn);
+    return r;
+  };
+
+  DT.newRun = function (heroId) {
+    const hero = DT.HEROES.find(h => h.id === heroId) || DT.HEROES[0];
+    const s = Object.assign({}, DT.BASE_STATS);
+    const m = hero.mods;
+    if (m.fireInterval) s.fireInterval *= m.fireInterval;
+    if (m.move) s.move *= m.move;
+    if (m.seedVx) s.seedVx *= m.seedVx;
+    if (m.dmg) s.dmg += m.dmg;
+    if (m.maxHp) s.maxHp += m.maxHp;
+    return { hero: hero.id, stats: s, levels: {}, hp: s.maxHp, score: 0, stage: 0, learned: [], maxCombo: 0 };
+  };
+
+  // 파워업 카드 3장 뽑기 (최대 레벨 제외)
+  DT.rollUpgrades = function (run, n) {
+    n = n || 3;
+    // 예전 저장 데이터에 새 능력치가 없으면 기본값으로 채움
+    Object.keys(DT.BASE_STATS).forEach(k => { if (run.stats[k] === undefined) run.stats[k] = DT.BASE_STATS[k]; });
+    const pool = DT.UPGRADES.filter(u => !u.filler && (run.levels[u.id] || 0) < u.max && (!u.when || u.when(run)));
+    const out = DT.shuffle(pool).slice(0, n);
+    if (out.length < n) out.push(DT.UPGRADES.find(u => u.id === 'bonus'));   // 다 배웠으면 보물 주머니
+    return out;
+  };
+  DT.applyUpgrade = function (run, id) {
+    const u = DT.UPGRADES.find(x => x.id === id);
+    if (!u) return;
+    u.apply(run.stats, run);
+    run.levels[id] = (run.levels[id] || 0) + 1;
+  };
+
+  DT.FONT = {
+    ko: '"Do Hyeon","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif',
+    zh: '"ZCOOL KuaiLe","Noto Sans SC","PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif',
+    py: '"Trebuchet MS","Segoe UI","Helvetica Neue",Arial,sans-serif'
+  };
+
+  DT.C = {
+    ink: 0x1a1c2c, navy: 0x29366f, teal: 0x257179, green: 0x38b764, lime: 0xa7f070,
+    yellow: 0xffcd75, orange: 0xef7d57, red: 0xb13e53, cyan: 0x73eff7, white: 0xf4f4f4,
+    grey: 0x94b0c2, slate: 0x566c86, dark: 0x333c57
+  };
+
+  DT.store = {
+    get(k, d) { try { const v = window.localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+    set(k, v) { try { window.localStorage.setItem(k, String(v)); } catch (e) { /* 저장소 없음 */ } }
+  };
+  DT.getHi = () => parseInt(DT.store.get('dentree_hi', '10000'), 10) || 10000;
+  DT.saveHi = (score) => { if (score > DT.getHi()) DT.store.set('dentree_hi', Math.floor(score)); };
+
+  DT.pad = (n, len) => String(Math.max(0, Math.floor(n))).padStart(len, '0');
+  DT.clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  DT.rng = function (seed) {
+    let a = seed >>> 0;
+    return function () {
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+  DT.shuffle = function (arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+  };
+
+  // 모바일: 전체화면 + 가로 고정 시도 (지원하지 않는 브라우저는 조용히 무시)
+  DT.tryLandscape = function () {
+    if (!document.body.classList.contains('touch-on')) return;
+    try {
+      const el = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      const p = req && !document.fullscreenElement ? req.call(el) : null;
+      const lock = () => { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); };
+      if (p && p.then) p.then(lock).catch(() => {}); else lock();
+    } catch (e) { /* 무시 */ }
+  };
+
+  // 모든 씬: 320x240 월드를 Z배 확대해서 보여줌
+  DT.setupCamera = function (scene) {
+    const cam = scene.cameras.main;
+    cam.setZoom(DT.Z);
+    cam.centerOn(DT.W / 2, DT.H / 2);
+    cam.setRoundPixels(true);
+    // 설정에서 '화면 흔들림'을 끄면 흔들림 없음
+    const shake = cam.shake.bind(cam);
+    cam.shake = (d, i, f) => (DT.store.get('dentree_shake', '1') === '1' ? shake(Math.min(d, 160) * 0.7, Math.min((i || 0.005) * 0.2, 0.0018), f) : cam);
+    // 화면 번쩍임은 눈이 어지러워서, 꼭 필요한 순간(force=true)에만 짧게
+    const flash = cam.flash.bind(cam);
+    cam.flash = (d, r, g, b, force) => (force === true ? flash(Math.min(d, 120), r, g, b, true) : cam);
+    return cam;
+  };
+
+  // 한글/한자 텍스트 (해상도 = 배율이라 확대해도 선명)
+  DT.text = function (scene, x, y, str, opt) {
+    opt = opt || {};
+    const style = {
+      fontFamily: DT.FONT[opt.font || 'ko'],
+      fontSize: (opt.size || 10) + 'px',
+      color: opt.color || '#f4f4f4',
+      align: opt.align || 'center'
+    };
+    if (opt.stroke !== null) {
+      style.stroke = opt.stroke || '#1a1c2c';
+      style.strokeThickness = opt.strokeThickness === undefined ? 2 : opt.strokeThickness;
+    }
+    if (opt.wrap) style.wordWrap = { width: opt.wrap, useAdvancedWrap: true };
+    const t = scene.add.text(Math.round(x), Math.round(y), str, style);
+    t.setResolution(DT.Z);
+    if (opt.wrap) t.setWordWrapWidth(opt.wrap, true);
+    t.setOrigin(opt.ox === undefined ? 0.5 : opt.ox, opt.oy === undefined ? 0.5 : opt.oy);
+    if (opt.depth !== undefined) t.setDepth(opt.depth);
+    return t;
+  };
+
+  // 오락실 픽셀 폰트 (영문·숫자)
+  DT.ptext = function (scene, x, y, str, opt) {
+    opt = opt || {};
+    const t = scene.add.bitmapText(Math.round(x), Math.round(y), 'pixel', String(str).toUpperCase());
+    t.setOrigin(opt.ox || 0, opt.oy || 0);
+    if (opt.tint !== undefined) t.setTint(opt.tint);
+    if (opt.scale) t.setScale(opt.scale);
+    if (opt.depth !== undefined) t.setDepth(opt.depth);
+    return t;
+  };
+
+  // 도트 느낌의 패널 (모서리를 깎은 사각형)
+  DT.panel = function (scene, x, y, w, h, opt) {
+    opt = opt || {};
+    const g = scene.add.graphics();
+    const border = opt.border === undefined ? DT.C.cyan : opt.border;
+    const fill = opt.fill === undefined ? DT.C.navy : opt.fill;
+    g.fillStyle(DT.C.ink, opt.alpha === undefined ? 1 : opt.alpha);
+    g.fillRect(x + 1, y, w - 2, h); g.fillRect(x, y + 1, w, h - 2);
+    g.fillStyle(border, 1);
+    g.fillRect(x + 2, y + 1, w - 4, h - 2); g.fillRect(x + 1, y + 2, w - 2, h - 4);
+    g.fillStyle(fill, 1);
+    g.fillRect(x + 3, y + 2, w - 6, h - 4); g.fillRect(x + 2, y + 3, w - 4, h - 6);
+    if (opt.shine !== false) { g.fillStyle(0xffffff, 0.12); g.fillRect(x + 3, y + 3, w - 6, 2); }
+    if (opt.depth !== undefined) g.setDepth(opt.depth);
+    return g;
+  };
+
+  // 테마별 배경 파티클 (꽃잎 · 스프링클 · 물방울 · 반짝이 · 눈송이)
+  DT.ambient = function (scene, theme, depth) {
+    const fall = { y: { min: -10, max: 0 }, x: { min: 0, max: 320 }, rotate: { min: 0, max: 360 }, lifespan: 9000 };
+    const cfg = {
+      forest: Object.assign({ key: 'petal', speedY: { min: 14, max: 30 }, speedX: { min: -14, max: 10 }, frequency: 520 }, fall),
+      guilin: Object.assign({ key: 'petal', speedY: { min: 12, max: 26 }, speedX: { min: -16, max: 6 }, frequency: 650 }, fall),
+      zhangjiajie: { key: 'glow', y: { min: 20, max: 220 }, x: { min: 10, max: 310 }, speedY: { min: -8, max: 8 }, speedX: { min: -8, max: 8 }, lifespan: 2600, frequency: 340, alpha: { start: 1, end: 0 } },
+      jiuzhaigou: Object.assign({ key: 'maple', speedY: { min: 16, max: 32 }, speedX: { min: -18, max: 8 }, frequency: 420 }, fall),
+      huangshan: { key: 'cloudpuff', y: { min: 30, max: 200 }, x: { min: -10, max: 0 }, speedX: { min: 8, max: 18 }, speedY: { min: -2, max: 2 }, lifespan: 22000, frequency: 1400, alpha: { start: 0.8, end: 0.8 } }
+    }[theme] || null;
+    if (!cfg) return null;
+    const key = cfg.key; delete cfg.key;
+    return scene.add.particles(0, 0, key, cfg).setDepth(depth || -5);
+  };
+
+  // 스테이지 덩어리로 퀴즈 자동 출제 (짝꿍 · 빈칸 · 듣기)
+  DT.makeQuiz = function (stage) {
+    const D = DT.DATA;
+    const hand = (stage.quiz || []).map(id => D.quizById[id]).filter(Boolean);
+    if (hand.length) return hand[Math.floor(Math.random() * hand.length)];
+    const ids = Array.from(new Set([].concat(...D.stages.filter(s => s.world === stage.world).map(s => s.chunks))));
+    const pool = ids.map(id => D.vocabById[id]).filter(Boolean);
+    const words = new Set(D.vocab.map(v => v.hanzi));
+    const v = D.vocabById[stage.chunks[Math.floor(Math.random() * stage.chunks.length)]];
+    const reveal = { hanzi: v.hanzi, pinyin: v.pinyin, meaning: v.meaning };
+    const uniq = (a) => Array.from(new Set(a));
+    let type = ['pair', 'blank', 'listen'][Math.floor(Math.random() * 3)];
+    const first = v.hanzi[0], rest = v.hanzi.slice(1);
+    if (type === 'pair') {
+      const d = DT.shuffle(uniq(pool.map(x => x.hanzi.slice(1)).filter(x => x !== rest && !words.has(first + x)))).slice(0, 3);
+      if (d.length === 3) return { id: 'auto', type, prompt: first + ' + ？', promptKo: '‘' + first + '(' + v.chars[0].p + ')’와 짝이 되는 말을 고르세요.',
+        options: [rest].concat(d), answer: rest, hint: v.hanzi + ' ' + v.pinyin + ' = ' + v.meaning, reveal };
+      type = 'listen';
+    }
+    if (type === 'blank') {
+      const d = DT.shuffle(uniq(pool.map(x => x.hanzi[0]).filter(x => x !== first && !words.has(x + rest)))).slice(0, 3);
+      if (d.length === 3) return { id: 'auto', type, prompt: '＿ + ' + rest, promptKo: '‘' + rest + '’ 앞에 올 말을 고르세요. (' + v.meaning + ')',
+        options: [first].concat(d), answer: first, hint: v.hanzi + ' ' + v.pinyin + ' = ' + v.meaning, reveal };
+    }
+    const d = DT.shuffle(pool.filter(x => x.id !== v.id).map(x => x.hanzi)).slice(0, 3);
+    return { id: 'auto', type: 'listen', audio: v.hanzi, audioPinyin: v.pinyin, promptKo: '잘 듣고 알맞은 덩어리를 고르세요.',
+      options: [v.hanzi].concat(d), answer: v.hanzi, hint: v.pinyin + ' — ‘' + v.meaning + '’라는 뜻이에요.', reveal };
+  };
+
+  // 게임 데이터 검증 (잘못된 JSON이면 기본 데이터 사용)
+  DT.validateData = function (d) {
+    if (!d || !Array.isArray(d.vocab) || !Array.isArray(d.quiz) || !Array.isArray(d.stages) || !d.stages.length) return false;
+    for (const s of d.stages) {
+      if (!Array.isArray(s.map) || (s.climb ? s.map.length < 15 : s.map.length !== 15)) return false;
+      if (s.map.some(r => typeof r !== 'string' || r.length !== 20)) return false;
+      if (!s.map.join('').includes('P')) return false;
+    }
+    return true;
+  };
+  DT.prepareData = function (d) {
+    d.vocabById = {};
+    d.vocab.forEach(v => { d.vocabById[v.id] = v; });
+    d.quizById = {};
+    d.quiz.forEach(q => { d.quizById[q.id] = q; });
+    return d;
+  };
+})();
