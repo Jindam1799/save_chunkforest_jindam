@@ -952,7 +952,7 @@
       });
       this.physics.add.overlap(this.waves, b, (a, c) => {
         const w = a === b ? c : a;
-        if (w.isWave && !w.hitBoss && !b.ghost) { w.hitBoss = true; this.bossHit(w); }
+        if (w.isWave && !w.hitBoss && !b.ghost) { w.hitBoss = true; this.bossHit(w, 0.5); }   // 물결은 두 갈래라 하나에 0.5 (둘 다 맞아야 다른 주인공의 한 방과 같음)
       });
       // HUD: 보스 이름과 체력
       this.bossName = DT.text(this, 160, 25, def.name, { font: 'ko', size: 9, color: '#ffcd75', strokeThickness: 3, depth: 42 });
@@ -1296,13 +1296,22 @@
       this.emote(b, '!');
     }
 
-    bossHit(src) {
+    bossHit(src, amt) {
       const b = this.boss, now = this.time.now;
-      if (!b || b.state !== 'active' || now < b.invUntil) return;
-      b.hp--; b.invUntil = now + 700;
+      amt = amt || 1;
+      if (!b || b.state !== 'active') return;
+      // 같은 구체에서 갈라진 짝 물결은 무적 시간 중에도 한 번 더 맞힐 수 있음
+      const pair = src && src.isWave ? src.bornAt : null;
+      const partner = pair !== null && b.lastPair === pair && !b.pairDone;
+      if (now < b.invUntil && !partner) return;
+      if (pair !== null) { if (partner) b.pairDone = true; else { b.lastPair = pair; b.pairDone = false; } }
+      const before = b.hp;
+      b.hp = Math.round((b.hp - amt) * 100) / 100;
+      if (!partner) b.invUntil = now + 700;
       this.drawBossBar();
-      this.addScore(2000);
-      this.popText(b.x, b.y - 36, 'BOSS HIT! +2000', 0xffcd75, 1, 1000);
+      const pts = Math.round(2000 * amt);
+      this.addScore(pts);
+      this.popText(b.x, b.y - 36, 'BOSS HIT! +' + pts, 0xffcd75, 1, 1000);
       this.cameras.main.shake(260, 0.012);
       this.hitStop(140);
       this.ring(b.x, b.y, 0xffffff, 2.2);
@@ -1310,8 +1319,8 @@
       DT.FX.play(this, 'poof', b.x, b.y + 20, { depth: 33 });
       DT.Audio.sfx('bosshit');
       b.body.setVelocity(((src && src.x < b.x) ? 1 : -1) * 120, -180);
-      if (b.hp <= 0) this.bossDie();
-      else if (b.hp === Math.floor(b.maxHp / 2)) this.banner('BOSS ANGRY!', 0xb13e53, 2.2, 1000);
+      if (b.hp <= 0.001) this.bossDie();
+      else if (before > b.maxHp / 2 && b.hp <= b.maxHp / 2) this.banner('BOSS ANGRY!', 0xb13e53, 2.2, 1000);
     }
 
     bossDie() {
@@ -2160,20 +2169,54 @@
     }
     openChest(ch) {
       if (ch.opened || this.dead) return;
-      ch.opened = true; ch.setFrame(1); ch.glow.remove();
+      ch.opened = true; ch.glow.remove();
+      this.tweens.killTweensOf(ch);
+      // 결과는 미리 정해 두고, 덜컹덜컹 흔들린 뒤에 공개
       const r = Math.random();
-      let txt, col = 0xffcd75, good = true;
-      if (r < 0.35) { txt = '꽝! 텅 비었어요~ +100'; this.addScore(100); col = 0x94b0c2; good = false; }
-      else if (r < 0.62) { txt = '보물! +5000'; this.addScore(5000); }
-      else if (r < 0.77) { if (this.hp < this.S.maxHp) { this.hp++; txt = '하트 보물! 체력 +1'; } else { this.addScore(3000); txt = '하트 보물! +3000'; } col = 0xff9db5; }
-      else if (r < 0.9) { this.powerUntil = this.time.now + 10000; txt = '힘의 보물! 10초 강화'; col = 0xa7f070; }
-      else { txt = '황금 보물!! +15000'; this.addScore(15000); }
-      this.popText(ch.x, ch.y - 18, txt, col, 1, 1800);
-      if (good) {
-        this.ring(ch.x, ch.y, 0xffcd75, 1.4); this.fxStar.explode(16, ch.x, ch.y - 6);
-        DT.FX.play(this, 'collect', ch.x, ch.y, { depth: 34 });
-        DT.Audio.sfx('levelup');
-      } else { this.fxDust.explode(6, ch.x, ch.y - 4); DT.Audio.sfx('bump'); }
+      const kind = r < 0.35 ? 'dud' : r < 0.62 ? 'score' : r < 0.77 ? 'heart' : r < 0.9 ? 'power' : 'gold';
+      const x = ch.x, y0 = ch.y;
+      DT.Audio.sfx('rattle');
+      this.tweens.add({ targets: ch, angle: { from: -10, to: 10 }, yoyo: true, repeat: 4, duration: 55, onComplete: () => { ch.setAngle(0); reveal(); } });
+      const reveal = () => {
+        if (kind === 'dud') {
+          // 꽝: 끼이익 천천히 열리고, 먼지 폴폴, 상자가 털썩 주저앉음
+          ch.setFrame(1);
+          DT.Audio.sfx('dud');
+          this.fxDust.explode(10, x, y0 - 6);
+          const puff = this.add.sprite(x, y0 - 10, 'puff', 0).setDepth(16).setTint(0x94b0c2).setScale(1.2);
+          puff.play('fx_puff'); puff.once('animationcomplete', () => puff.destroy());
+          this.tweens.add({ targets: ch, scaleY: 0.8, scaleX: 1.1, y: y0 + 2, duration: 260, ease: 'Quad.easeOut' });
+          this.tweens.add({ targets: ch, alpha: 0.6, delay: 900, duration: 600 });
+          const sad = DT.text(this, DT.clamp(x, 40, DT.W - 40), y0 - 22, '꽝… ㅠㅠ', { font: 'ko', size: 10, color: '#94b0c2', strokeThickness: 2, depth: 44 });
+          this.tweens.add({ targets: sad, y: sad.y - 6, angle: { from: -4, to: 4 }, yoyo: true, repeat: 2, duration: 300 });
+          this.tweens.add({ targets: sad, alpha: 0, delay: 1700, duration: 400, onComplete: () => sad.destroy() });
+          this.addScore(100);
+          return;
+        }
+        // 보물: 뚜껑이 팡! 빛기둥 + 보물이 둥실 떠오르며 반짝
+        ch.setFrame(1);
+        this.tweens.add({ targets: ch, scaleY: 1.25, yoyo: true, duration: 90 });
+        const big = kind === 'gold';
+        DT.Audio.sfx('treasure', big);
+        const beam = this.add.rectangle(x, y0 - 6, big ? 22 : 14, 4, 0xfff3b0, 0.75).setOrigin(0.5, 1).setDepth(14).setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({ targets: beam, height: big ? 140 : 90, duration: 260, ease: 'Cubic.easeOut' });
+        this.tweens.add({ targets: beam, alpha: 0, delay: 700, duration: 500, onComplete: () => beam.destroy() });
+        const ICON = { score: ['coin', 1.8, 0xffffff], heart: ['heart', 2, 0xffffff], power: ['star', 2.6, 0xa7f070], gold: ['coin', 2.8, 0xffffff] }[kind];
+        const item = this.add.image(x, y0 - 8, ICON[0], 0).setScale(0.3).setDepth(45).setTint(ICON[2]);
+        const tx = DT.clamp(x, 40, DT.W - 40);   // 벽 옆 상자여도 화면 안쪽으로 떠오름
+        this.tweens.add({ targets: item, x: tx, y: y0 - 40, scale: ICON[1], duration: 420, ease: 'Back.easeOut' });
+        this.tweens.add({ targets: item, angle: 360, duration: 700 });
+        this.time.delayedCall(450, () => this.fxStar.explode(big ? 30 : 14, tx, y0 - 40));
+        this.tweens.add({ targets: item, alpha: 0, scale: ICON[1] * 1.4, delay: 1300, duration: 300, onComplete: () => item.destroy() });
+        this.ring(x, y0 - 10, 0xffcd75, big ? 2 : 1.4);
+        DT.FX.play(this, 'collect', x, y0, { depth: 34 });
+        let txt, col = 0xffcd75;
+        if (kind === 'score') { txt = '보물! +5000'; this.addScore(5000); }
+        else if (kind === 'heart') { if (this.hp < this.S.maxHp) { this.hp++; txt = '하트 보물! 체력 +1'; } else { this.addScore(3000); txt = '하트 보물! +3000'; } col = 0xff9db5; }
+        else if (kind === 'power') { this.powerUntil = this.time.now + 10000; txt = '힘의 보물! 10초 강화'; col = 0xa7f070; }
+        else { txt = '+15000'; this.addScore(15000); this.banner('황금 보물!!', 0xffcd75, 2.4, 1300); for (let i = 0; i < 4; i++) this.time.delayedCall(200 + i * 160, () => this.fxStar.explode(10, x + Phaser.Math.Between(-30, 30), y0 - Phaser.Math.Between(20, 60))); }
+        this.time.delayedCall(380, () => this.popText(DT.clamp(x, 70, DT.W - 70), y0 - 58, txt, col, 1, 1700));
+      };
     }
     checkChestHint() {
       if (this.chestHint || !this.chestSpots || !this.started) return;

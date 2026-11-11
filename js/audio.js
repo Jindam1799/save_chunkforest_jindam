@@ -187,6 +187,21 @@
     poot() { tone({ f: 140, f2: 70, d: 0.22, v: 0.16, type: 'sawtooth', vib: 22 }); noise({ d: 0.12, v: 0.08, f: 300 }); },
     squish() { noise({ d: 0.15, v: 0.2, f: 500, f2: 150 }); tone({ f: 260, f2: 90, d: 0.18, v: 0.12, type: 'sine', vib: 30 }); },
     warn() { tone({ f: 880, d: 0.06, v: 0.1 }); tone({ f: 660, d: 0.08, t: 0.08, v: 0.1 }); },
+    // 보물상자: 덜컹덜컹(기대) → 보물 팡파르 / 꽝 뿌우~ 슬픈 트롬본
+    rattle() { [0, 0.09, 0.18, 0.27, 0.36].forEach((t, i) => { noise({ d: 0.05, t, v: 0.1, f: 900 + i * 150, filter: 'bandpass' }); tone({ f: 180 + i * 20, d: 0.04, t, v: 0.05, type: 'square' }); }); },
+    treasure(big) {
+      noise({ d: 0.12, v: 0.12, f: 2500, filter: 'bandpass' });
+      arp('lead', [72, 76, 79, 84, 88], 0.07, 0.11, 0.13);
+      play('lead', 0.38, big ? 96 : 91, 0.35, 0.13);
+      arp('pluck', [96, 100, 103, 108], 0.05, 0.08);
+      if (big) { arp('pluck', [84, 88, 91, 96, 100, 103, 108], 0.04, 0.1); arp('bass', [48, 55, 60, 67], 0.12, 0.2, 0.18); }
+    },
+    dud() {
+      tone({ f: 180, f2: 120, d: 0.25, v: 0.07, type: 'square' });   // 끼이익 (천천히 열림)
+      [[392, 0.3], [370, 0.62], [349, 0.94]].forEach(([f, t]) => tone({ f, d: 0.28, t, v: 0.11, type: 'sawtooth', vib: 6 }));
+      tone({ f: 330, f2: 262, d: 0.7, t: 1.26, v: 0.12, type: 'sawtooth', vib: 10, slide: 0.6 });
+      noise({ d: 0.25, t: 0.3, v: 0.06, f: 400 });
+    },
     bosshit() { noise({ d: 0.4, v: 0.35, f: 2500, f2: 100 }); tone({ f: 90, f2: 30, d: 0.4, v: 0.3, type: 'square' }); arp('lead', [79, 72], 0.08, 0.1); }
   };
 

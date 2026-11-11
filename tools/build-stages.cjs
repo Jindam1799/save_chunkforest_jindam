@@ -168,8 +168,9 @@ const ARCH = {
   },
   // 기둥 숲(장자제처럼): 높이가 다른 돌기둥을 건너뜀
   columns(m) {
-    fill(m, 11, 13, 3, 4, '#'); fill(m, 8, 13, 7, 8, '#'); fill(m, 10, 13, 11, 12, '#'); fill(m, 7, 13, 15, 16, '#');
-    fill(m, 5, 5, 5, 12, '='); fill(m, 4, 4, 14, 18, '='); fill(m, 11, 11, 17, 18, '=');
+    // 단단한 기둥은 2칸씩만 높아짐 (블록 모서리를 넘으려면 발판보다 높이 뛰어야 하므로)
+    fill(m, 12, 13, 3, 4, '#'); fill(m, 10, 13, 7, 8, '#'); fill(m, 11, 13, 12, 13, '#'); fill(m, 9, 13, 16, 18, '#');
+    fill(m, 7, 7, 5, 11, '='); fill(m, 6, 6, 13, 18, '='); fill(m, 4, 4, 2, 8, '='); fill(m, 11, 11, 9, 10, '=');
     put(m, 13, 10, 'P');
   },
   // 작은 섬 발판이 여기저기
@@ -229,24 +230,44 @@ function surfacesOf(m) {
   return out;
 }
 function unreachable(m) {
-  const S = surfacesOf(m);
+  const S = surfacesOf(m).map(x => Object.assign(x, { solid: m[x.r][x.c] === '#' }));
+  // a→b 사이 기둥·벽이 가로막는지 (높은 쪽 발판 높이에서 몸 높이 두 칸)
+  const blocked = (a, b) => {
+    const top = Math.min(a.r, b.r) - 1, lo = Math.min(a.c, b.c), hi = Math.max(a.c, b.c);
+    for (let c = lo + 1; c < hi; c++) for (const r of [top, top - 1]) if (m[r] && m[r][c] === '#') return true;
+    return false;
+  };
   let P = { r: 13, c: 10 };
   m.forEach((row, r) => { const c = row.indexOf('P'); if (c >= 0) P = { r, c }; });
   const k = (x) => x.r + ',' + x.c;
   const start = S.filter(x => x.c === P.c && x.r > P.r).sort((a, b) => a.r - b.r)[0];
   if (!start) return [];
-  const seen = new Set([k(start)]), q = [start];
+  const seen = flood(start);
+  unreachable.last = { S, seen, start, flood, k };
+  return S.filter(x => !seen.has(k(x)));
+  function flood(from) {
+  const seen = new Set([k(from)]), q = [from];
   while (q.length) {
     const a = q.shift();
     for (const b of S) {
       if (seen.has(k(b))) continue;
       const dy = a.y - b.y, dc = Math.abs(a.c - b.c);
-      let ok = dy <= 0 ? (dc <= 1 || dc <= 4 + Math.floor(-dy / 24)) : (dy <= 48 && dc <= 3);
+      // 위로: 일방향 발판은 3칸(48px)까지, 단단한 블록 윗면은 모서리를 넘어야 해서 2칸(32px)까지
+      let ok = dy <= 0 ? (dc <= 1 || dc <= 4 + Math.floor(-dy / 24)) : (dy <= (b.solid ? 32 : 48) && dc <= 3);
+      if (ok && dc > 1 && blocked(a, b)) ok = false;
       if (a.slope || b.slope) ok = ok || (dc <= 1 && Math.abs(dy) <= 16);
       if (ok) { seen.add(k(b)); q.push(b); }
     }
   }
-  return S.filter(x => !seen.has(k(x)));
+  return seen;
+  }
+}
+// 들어가면 다시 못 나오는 곳(깊은 구덩이 등): 시작점으로 돌아갈 수 없는 발판 목록
+function trapSpots(m) {
+  unreachable(m);
+  const L = unreachable.last;
+  if (!L) return [];
+  return L.S.filter(x => L.seen.has(L.k(x)) && !L.flood(x).has(L.k(L.start)));
 }
 // 못 닿는 발판이 있으면: 3칸 아래에 디딤 발판을 놓고, 안 되면 그 발판을 없앰 (보물 받침대는 그대로 못 닿게 유지)
 function fixReach(m, tr) {
@@ -279,6 +300,20 @@ function fixReach(m, tr) {
   }
 }
 
+// 못 나오는 구덩이는 흙으로 메움
+function fillTraps(m) {
+  for (let g = 0; g < 20; g++) {
+    const t = trapSpots(m).filter(x => !x.slope && m[x.r][x.c] !== '=');
+    if (!t.length) return;
+    const x = t[0];
+    for (let r = x.r - 1; r >= 1 && m[r][x.c] === '.'; r--) {
+      m[r] = set(m[r], x.c, '#');
+      const up = m[r - 1] && m[r - 1][x.c];
+      if (up !== '.' || trapSpots(m).every(y => y.c !== x.c)) break;
+    }
+  }
+}
+
 function makeMap(layout, enemies, R, features, arch, treasure) {
   const m = blank();
   (ARCH[arch || 'classic'])(m, R, layout);
@@ -293,6 +328,7 @@ function makeMap(layout, enemies, R, features, arch, treasure) {
   });
   const tr = treasure ? addTreasure(m, R) : null;
   fixReach(m, tr);
+  fillTraps(m);
   // 놓을 수 있는 칸: 발판(5·8·11행) 바로 위, 바닥(13행)은 시작 위치에서 먼 곳
   const spots = [];
   for (let r = 3; r <= 13; r++) for (let c = 1; c < 19; c++) {

@@ -457,6 +457,11 @@
         for (let x = 0; x < 16; x++) { const h = Math.round(3 + 6 * Math.sin((x / 15) * Math.PI) * (f ? 0.8 : 1)); rect(ctx, ox + x, 10 - h, 1, h, x % 3 === f ? '#ffffff' : '#ffcd75'); }
         rect(ctx, ox, 9, 16, 1, '#ef7d57');
       });
+      // 금화 (보물상자 보상)
+      addSingle(scene, 'coin', 12, 12, (ctx) => {
+        disc(ctx, 6, 6, 5, '#1a1c2c'); disc(ctx, 6, 6, 4, '#ffcd75'); disc(ctx, 6, 6, 2, '#ef7d57');
+        rect(ctx, 5, 4, 2, 5, '#ffcd75'); px(ctx, 4, 3, '#ffffff'); px(ctx, 3, 4, '#ffffff');
+      });
       // 보물상자 (0: 닫힘, 1: 열림)
       addFrames(scene, 'chest', 18, 16, 2, (ctx, ox, f) => {
         rect(ctx, ox + 1, 6, 16, 10, '#1a1c2c'); rect(ctx, ox + 2, 7, 14, 8, '#8a4b2a'); rect(ctx, ox + 2, 7, 14, 1, '#c27c4a');
