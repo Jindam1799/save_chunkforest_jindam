@@ -74,9 +74,9 @@
       // ↓ + 점프: 발판 아래로 내려가기 (일방향 발판만 통과, 바닥·벽은 그대로)
       this.physics.add.collider(this.player, this.terrain, null, (a, b) => {
         const z = a === this.player ? b : a;
-        return !this.dead && !(z.oneWay && this.time.now < this.dropUntil);
+        return !this.dead && !(z.oneWay && this.time.now < this.dropUntil) && !this.slopeStep(this.player, z, this.onSlope);
       });
-      this.physics.add.collider(this.enemies, this.terrain, null, (a, b) => { const e = a.kind ? a : b, z = a.kind ? b : a; return e.state !== 'dead' && !(z.oneWay && this.time.now < (e.dropUntil || 0)); });
+      this.physics.add.collider(this.enemies, this.terrain, null, (a, b) => { const e = a.kind ? a : b, z = a.kind ? b : a; return e.state !== 'dead' && !(z.oneWay && this.time.now < (e.dropUntil || 0)) && !this.slopeStep(e, z); });
       this.physics.add.collider(this.seeds, this.terrain, (a, b) => this.popSeed(a.isSeed ? a : b));
       this.physics.add.collider(this.frags, this.terrain);
       this.physics.add.collider(this.waves, this.terrain);
@@ -220,17 +220,25 @@
     }
     slopeSurfaceY(ch, r, lx) { return ch === '/' ? r * 16 + 15 - lx : r * 16 + lx; }
     // (x, 발밑 y)에서 경사로 표면 찾기
-    slopeAt(x, yb) {
+    slopeAt(x, yb, tol) {
+      tol = tol || 0;
       const c = Math.floor(x / 16), lx = Math.floor(x) - c * 16;
       const r0 = Math.floor(yb / 16);
       for (let r = r0 - 1; r <= r0 + 1; r++) {
         const ch = this.slopes[r + ',' + c];
         if (!ch) continue;
         const sY = this.slopeSurfaceY(ch, r, lx);
-        if (yb >= sY - 5 && yb <= sY + 9) return { s: sY, down: ch === '/' ? -1 : 1, r, c };
+        if (yb >= sY - 5 - tol && yb <= sY + 9 + tol) return { s: sY, down: ch === '/' ? -1 : 1, r, c };
       }
       return null;
     }
+    // 경사로를 타고 올라오다 꼭대기 블록 모서리에 옆으로 부딪히는 것 무시 (경사로 보정이 곧 블록 위로 올려 줌)
+    slopeStep(o, z, on) {
+      if (!(on || o.onSlope) || !z.body) return false;
+      const top = z.body.top, bot = o.body.bottom;
+      return top < bot && top >= bot - 20;
+    }
+
     // 점(x,y)이 경사로 띠(표면~두께) 안에 있는지
     slopeHit(x, y) {
       const c = Math.floor(x / 16), lx = Math.floor(x) - c * 16, r0 = Math.floor(y / 16);
@@ -243,15 +251,18 @@
       return false;
     }
     // 몸이 경사로 위에 있으면 표면에 붙임 (아래에서 위로 뛰어오를 때는 통과)
-    stickToSlope(body) {
-      if (!body || !body.enable || body.velocity.y < -1) return null;
-      const hit = this.slopeAt(body.center.x, body.bottom);
+    // wasOn: 지난 프레임에도 경사로 위였으면 판정 폭을 넓힘 (빠르게 구르거나 프레임이 떨어져도 경사로를 놓치지 않게)
+    // force: 구체(굴러가는·봉인)는 위로 살짝 튀어도 경사로를 타야 함 (밑으로 빠지지 않게)
+    stickToSlope(body, wasOn, force) {
+      if (!body || !body.enable || (body.velocity.y < -1 && !force)) return null;
+      const hit = this.slopeAt(body.center.x, body.bottom, wasOn ? 9 : 0);
       if (!hit) return null;
       // 경사로 꼭대기가 블록·발판과 이어지는 곳: 앞발이 그 위에 올라서 있으면 그 높이로 (블록 모서리에 발이 끼어 멈추던 문제)
       const m = this.stage.map, top = hit.r * 16, side = hit.down < 0 ? 1 : -1;   // '/'는 오른쪽, '\'는 왼쪽이 오르막
       const nb = m[hit.r] && m[hit.r][hit.c + side];
       const footIn = side > 0 ? body.right > (hit.c + 1) * 16 - 3 : body.left < hit.c * 16 + 3;
-      if (footIn && nb && '#=GC'.indexOf(nb) >= 0) hit.s = Math.min(hit.s, top);
+      const above = m[hit.r - 1] && m[hit.r - 1][hit.c + side];   // 그 블록 위가 비어 있어야(서 있을 수 있는 윗면) 올라섬 — 바깥 벽 옆에서 벽을 타고 오르지 않게
+      if (footIn && nb && '#=GC'.indexOf(nb) >= 0 && above && '#=GC/\\'.indexOf(above) < 0) hit.s = Math.min(hit.s, top);
       body.y = hit.s - body.height;
       if (body.velocity.y > 0) body.velocity.y = 0;
       return hit;
@@ -271,22 +282,29 @@
         return 0;
       };
       const pr = test('\\', body.right - 0.5);   // ╲ 경사: 오른쪽으로 걸어 들어오면 막힘
-      if (pr > 0) { body.x -= pr; if (body.velocity.x > 0) body.velocity.x = 0; body.blocked.right = true; return; }
+      const wallAt = (x) => this.solidAt(x, body.top + 2) || this.solidAt(x, body.bottom - 2) || x < 16 || x > DT.W - 16;
+      if (pr > 0) {   // 밀어낼 자리가 벽이면 밀지 않고 멈추기만 함 (벽 속으로 끼어 들어가지 않게)
+        if (!wallAt(body.left - pr)) body.x -= pr;
+        if (body.velocity.x > 0) body.velocity.x = 0; body.blocked.right = true; return;
+      }
       const pl = test('/', body.left + 0.5);       // ╱ 경사: 왼쪽으로 걸어 들어오면 막힘
-      if (pl > 0) { body.x += pl; if (body.velocity.x < 0) body.velocity.x = 0; body.blocked.left = true; }
+      if (pl > 0) {
+        if (!wallAt(body.right + pl)) body.x += pl;
+        if (body.velocity.x < 0) body.velocity.x = 0; body.blocked.left = true;
+      }
     }
     applySlopes() {
       if (!this.slopes || !Object.keys(this.slopes).length) { this.onSlope = null; return; }
       const p = this.player;
-      this.onSlope = (!this.dead && this.time.now >= this.dropUntil) ? this.stickToSlope(p.body) : null;
+      this.onSlope = (!this.dead && this.time.now >= this.dropUntil) ? this.stickToSlope(p.body, !!this.onSlope) : null;
       if (!this.onSlope && !this.dead) this.blockSlopeUnderside(p.body);
       this.enemies.getChildren().forEach(e => {
         if (!e.active || e.state === 'dead' || (e.flyer && e.state === 'active')) { e.onSlope = null; return; }
         if (this.time.now < (e.dropUntil || 0)) { e.onSlope = null; return; }
-        e.onSlope = this.stickToSlope(e.body);
+        e.onSlope = this.stickToSlope(e.body, !!e.onSlope, e.state === 'rolling' || e.state === 'sealed');
         if (!e.onSlope) this.blockSlopeUnderside(e.body);
       });
-      [this.frags, this.poops, this.waves].forEach(g => g.getChildren().forEach(o => { if (o.active) { o.onSlope = this.stickToSlope(o.body); if (!o.onSlope) this.blockSlopeUnderside(o.body); } }));
+      [this.frags, this.poops, this.waves].forEach(g => g.getChildren().forEach(o => { if (o.active) { o.onSlope = this.stickToSlope(o.body, !!o.onSlope); if (!o.onSlope) this.blockSlopeUnderside(o.body); } }));
       // 탄은 경사로(대각선 발판)를 뚫지 못함: 띠에 닿으면 터짐 (도토리탄은 위에 올라타면 계속 굴러감)
       this.seeds.getChildren().slice().forEach(sd => {
         if (!sd.active) return;

@@ -33,18 +33,18 @@ const WORLDS = [
   { theme: 'guilin', place: '구이린', names: ['리강 나루터', '코끼리 코 바위', '대나무 뗏목길', '양숴 들판', '달빛 언덕', '노을 강변', '안개 봉우리'],
     mix: ['mush', 'mush', 'gob', 'snail', 'bird', 'puppy', 'rabbit'],
     arch: ['classic', 'classic', 'islands', 'hill', 'slide', 'wrap', 'valley'],
-    boss: { kind: 'mush', style: 'ground', name: '거대 혼동버섯', hp: 6, tint: 0xe6b8ff, minions: ['mush', 'gob', 'puppy'] } },
+    boss: { kind: 'mush', style: 'ground', name: '거대 혼동버섯', hp: 5, tint: 0xe6b8ff, minions: ['mush', 'snail', 'gob'] } },
   { theme: 'zhangjiajie', place: '장자제', names: ['기둥 숲 입구', '구름 다리', '천자산', '금편 계곡', '하늘 사다리', '천문동 앞', '안개 절벽'],
     mix: ['mush', 'gob', 'snail', 'bird', 'frog', 'monkey', 'puppy', 'bat', 'hedge', 'rabbit'],
     arch: ['columns', 'zigzag', 'islands', 'wrap', 'cave', 'valley', 'slide'],
-    boss: { kind: 'bird', style: 'fly', name: '구름 성조새 대왕', hp: 7, tint: 0xb8e6ff, minions: ['bird', 'gob', 'rabbit'] } },
+    boss: { kind: 'bird', style: 'fly', name: '구름 성조새 대왕', hp: 6, tint: 0xb8e6ff, minions: ['bird', 'gob', 'rabbit'] } },
   { theme: 'jiuzhaigou', place: '주자이거우', names: ['다섯 빛깔 호수', '거울 호수', '진주 여울', '노르랑 폭포', '단풍 숲길', '판다 호수', '긴 바다'],
     mix: ['frog', 'frog', 'bird', 'thief', 'snail', 'dragon', 'monkey', 'rabbit', 'hedge', 'lantern'],
     arch: ['valley', 'slide', 'wrap', 'zigzag', 'hill', 'islands', 'classic'],
     boss: { kind: 'snail', style: 'ceil', name: '천장 대왕달팽이', hp: 8, tint: 0xd0ffb0, minions: ['snail', 'frog', 'mush'] } },
   { theme: 'huangshan', place: '황산', names: ['영객송 쉼터', '구름 바다', '광명정', '서해 협곡', '시신봉', '연꽃봉', '일출 정상'],
     mix: ['thief', 'gob', 'frog', 'bird', 'dragon', 'monkey', 'puppy', 'bat', 'hedge', 'lantern', 'rabbit'],
-    arch: ['cave', 'zigzag', 'columns', 'wrap', 'valley', 'hill', 'slide'],
+    arch: ['cave', 'columns', 'zigzag', 'wrap', 'valley', 'hill', 'slide'],
     boss: { kind: 'lantern', style: 'warp', name: '도깨비 등불왕', hp: 10, tint: 0xffe08a, minions: ['thief', 'monkey', 'rabbit'] } }
 ];
 
@@ -114,7 +114,7 @@ function addHops(m, R) {
   let c = 2 + Math.floor(R() * 2);
   let up = R() < 0.5;
   while (c < 18) {
-    const rr = up ? r - 1 : r + 1;
+    const rr = up ? r : r + 1;   // 위로 한 칸 올리면 아래 줄에서 4칸이 되어 못 닿음 → 같은 줄/한 칸 아래만
     const w = R() < 0.6 ? 1 : 2;
     for (let k = 0; k < w && c + k < 19; k++) if (m[rr][c + k] === '.') m[rr] = set(m[rr], c + k, '=');
     c += w + 2 + Math.floor(R() * 2);
@@ -133,6 +133,8 @@ const ARCH = {
     fill(m, 11, 13, 7, 12, '#');
     [[13, 4], [12, 5], [11, 6]].forEach(([r, c]) => put(m, r, c, '/'));
     [[11, 13], [12, 14], [13, 15]].forEach(([r, c]) => put(m, r, c, '\\'));
+    // 경사로 밑 빈 틈을 흙으로 채움 (틈에 끼거나 벽 속으로 밀려 들어가지 않게)
+    [[12, 6], [13, 6], [13, 5], [12, 13], [13, 13], [13, 14]].forEach(([r, c]) => put(m, r, c, '#'));
     m[8] = '#===.....==.....===#'; m[5] = '#..====......====..#';
     put(m, 10, 10, 'P');
   },
@@ -141,6 +143,7 @@ const ARCH = {
     fill(m, 10, 13, 1, 4, '#'); fill(m, 10, 13, 15, 18, '#');
     [[10, 5], [11, 6], [12, 7], [13, 8]].forEach(([r, c]) => put(m, r, c, '\\'));
     [[13, 11], [12, 12], [11, 13], [10, 14]].forEach(([r, c]) => put(m, r, c, '/'));
+    [[11, 5], [12, 5], [13, 5], [12, 6], [13, 6], [13, 7], [11, 14], [12, 14], [13, 14], [12, 13], [13, 13], [13, 12]].forEach(([r, c]) => put(m, r, c, '#'));
     m[7] = '#....==........==..#'.slice(0, 20); m[7] = '#...====....====...#';
     m[4] = '#==....======....==#';
     put(m, 13, 9, 'P');
@@ -175,7 +178,7 @@ const ARCH = {
       let c = 1 + Math.floor(R() * 3) + (i % 2) * 2;
       while (c < 18) {
         const w = 2 + Math.floor(R() * 2);
-        const rr = r - (R() < 0.3 ? 1 : 0);   // 아래로는 내리지 않음 (바닥과 한 칸 틈이 생기지 않게)
+        const rr = r;   // 높이는 고정(3칸 간격) → 점프만으로 모든 섬에 닿음
         for (let k = 0; k < w && c + k <= 18; k++) put(m, rr, c + k, '=');
         c += w + 2 + Math.floor(R() * 2);
       }
@@ -214,6 +217,68 @@ function addTreasure(m, R) {
   return { X, cols: [X, X + 1] };
 }
 
+/* ── 도달 검사: 점프(최대 3칸)와 낙하만으로 시작점에서 갈 수 있는 발판. 구체를 밟아야만 닿는 곳은 보물상자뿐이어야 함 ── */
+function surfacesOf(m) {
+  const out = [];
+  const free = (q) => q !== undefined && !'#=C/\\G'.includes(q);
+  for (let r = 2; r < m.length; r++) for (let c = 1; c < 19; c++) {
+    const ch = m[r][c];
+    if ('#=CG'.includes(ch) && free(m[r - 1][c])) out.push({ r, c, y: r * 16 });
+    if (ch === '/' || ch === '\\') out.push({ r, c, y: r * 16 + 8, slope: true });
+  }
+  return out;
+}
+function unreachable(m) {
+  const S = surfacesOf(m);
+  let P = { r: 13, c: 10 };
+  m.forEach((row, r) => { const c = row.indexOf('P'); if (c >= 0) P = { r, c }; });
+  const k = (x) => x.r + ',' + x.c;
+  const start = S.filter(x => x.c === P.c && x.r > P.r).sort((a, b) => a.r - b.r)[0];
+  if (!start) return [];
+  const seen = new Set([k(start)]), q = [start];
+  while (q.length) {
+    const a = q.shift();
+    for (const b of S) {
+      if (seen.has(k(b))) continue;
+      const dy = a.y - b.y, dc = Math.abs(a.c - b.c);
+      let ok = dy <= 0 ? (dc <= 1 || dc <= 4 + Math.floor(-dy / 24)) : (dy <= 48 && dc <= 3);
+      if (a.slope || b.slope) ok = ok || (dc <= 1 && Math.abs(dy) <= 16);
+      if (ok) { seen.add(k(b)); q.push(b); }
+    }
+  }
+  return S.filter(x => !seen.has(k(x)));
+}
+// 못 닿는 발판이 있으면: 3칸 아래에 디딤 발판을 놓고, 안 되면 그 발판을 없앰 (보물 받침대는 그대로 못 닿게 유지)
+function fixReach(m, tr) {
+  const isPed = (x) => tr && x.r === 10 && tr.cols.includes(x.c);
+  const pedReachable = () => tr && !unreachable(m).some(isPed);
+  const skip = new Set();
+  for (let guard = 0; guard < 60; guard++) {
+    const bad = unreachable(m).filter(x => !isPed(x) && !x.slope && !skip.has(x.r + ',' + x.c));
+    if (!bad.length) return;
+    const b = bad.sort((a, b2) => b2.r - a.r)[0];        // 가장 낮은 것부터
+    let placed = false;
+    for (const dc of [0, -1, 1, -2, 2]) {
+      const r = b.r + 3, c0 = b.c + dc;
+      if (r > 12) break;
+      const cells = [c0, c0 + 1].filter(c => c >= 1 && c <= 18);
+      if (cells.length < 2 || !cells.every(c => m[r][c] === '.' && m[r - 1][c] === '.' && (!m[r + 1] || m[r + 1][c] !== '=')) ) continue;
+      if (tr && cells.some(c => Math.abs(c - tr.X) <= 8 && (tr.X === 1 ? c <= 10 : c >= 9))) continue;
+      const saved = m[r];
+      cells.forEach(c => { m[r] = set(m[r], c, '='); });
+      if (pedReachable()) { m[r] = saved; continue; }
+      placed = true; break;
+    }
+    if (!placed) {   // 디딤 발판을 둘 곳이 없으면 그 발판 줄(같은 높이로 이어진 부분)을 지움
+      let a = b.c, z = b.c;
+      while (a - 1 >= 1 && m[b.r][a - 1] === m[b.r][b.c]) a--;
+      while (z + 1 <= 18 && m[b.r][z + 1] === m[b.r][b.c]) z++;
+      for (let c = a; c <= z; c++) if (m[b.r][c] === '=' || m[b.r][c] === 'C') m[b.r] = set(m[b.r], c, '.');
+      if (m[b.r][b.c] === '#') skip.add(b.r + ',' + b.c);   // 블록은 지우지 않음
+    }
+  }
+}
+
 function makeMap(layout, enemies, R, features, arch, treasure) {
   const m = blank();
   (ARCH[arch || 'classic'])(m, R, layout);
@@ -227,6 +292,7 @@ function makeMap(layout, enemies, R, features, arch, treasure) {
     else if (f === 'hops') addHops(m, R);
   });
   const tr = treasure ? addTreasure(m, R) : null;
+  fixReach(m, tr);
   // 놓을 수 있는 칸: 발판(5·8·11행) 바로 위, 바닥(13행)은 시작 위치에서 먼 곳
   const spots = [];
   for (let r = 3; r <= 13; r++) for (let c = 1; c < 19; c++) {
@@ -389,6 +455,23 @@ const STORY = [
   }
 ];
 
+/* ── 난이도 곡선: 몬스터 종류가 하나씩 늘어나고(처음엔 버섯·달팽이만), 1·2월드는 적게, 3·4월드부터 어렵게 ── */
+const UNLOCK = [[0, 'mush'], [0, 'snail'], [1, 'gob'], [2, 'bird'], [3, 'rabbit'], [4, 'frog'], [5, 'puppy'], [6, 'monkey'],
+  [7, 'bat'], [8, 'hedge'], [10, 'dragon'], [12, 'thief'], [14, 'lantern']];
+const EASY = { mush: 3, snail: 3, gob: 2 };
+function monsterSet(level, count, R) {
+  const pool = UNLOCK.filter(([l]) => l <= level).map(([, k]) => k);
+  const fresh = UNLOCK.filter(([l]) => l === level).map(([, k]) => k);   // 이번 스테이지에 처음 나오는 몬스터는 꼭 1~2마리
+  const easyBias = level < 14 ? 1 : 0;
+  const bag = [];
+  pool.forEach(k => { for (let i = 0; i < (easyBias ? (EASY[k] || 1) : 1); i++) bag.push(k); });
+  const out = [];
+  fresh.forEach(k => { out.push(k); if (count > 4) out.push(k); });
+  while (out.length < count) out.push(bag[Math.floor(R() * bag.length)]);
+  return out.slice(0, count);
+}
+const COUNTS = [[3, 4, 5, 6, 6, 7, 8], [7, 7, 8, 8, 9, 9, 10], [10, 11, 11, 12, 12, 13, 13], [12, 13, 13, 14, 14, 15, 15]];
+
 const stages = [];
 WORLDS.forEach((w, wi) => {
   const pool = VOCAB[wi].map(v => v.id);
@@ -402,12 +485,10 @@ WORLDS.forEach((w, wi) => {
         boss: w.boss, world: wi + 1, story: STORY[wi].B });
       continue;
     }
-    const count = Math.min(16, 10 + Math.floor(n * 0.7) + wi);
-    const enemies = [];
-    for (let i = 0; i < count; i++) enemies.push(w.mix[Math.floor(R() * w.mix.length)]);
+    const level = wi * 7 + n;
+    const enemies = monsterSet(level, COUNTS[wi][n], R);
     const layout = LAYOUTS[(wi * 3 + n) % LAYOUTS.length];
     // 지형 다양화: 뒤로 갈수록 기능이 늘어남 (1-1·1-2는 평평한 연습 스테이지)
-    const level = wi * 7 + n;
     const POOL = [['stairs'], ['ramp'], ['hops'], ['ramp', 'stairs'], ['ramp2', 'hops'], ['ramp', 'ramp2'], ['stairs', 'hops', 'ramp']];
     const features = level < 2 ? [] : POOL[(level - 2) % POOL.length].concat(level > 14 ? ['ramp'] : []).concat(level > 21 ? ['hops'] : []);
     const arch = w.arch[n];
@@ -419,7 +500,7 @@ WORLDS.forEach((w, wi) => {
       const CR = rng(wi * 999 + 17);
       const rows = 64 + wi * 8;
       stages.push({ id: `${wi + 1}-J`, name: `${w.place} · 진담 점프!`, theme: w.theme, chunks: [0, 1, 2].map(k => pool[(k * 4 + wi) % pool.length]),
-        map: makeClimbMap(rows, CR, w.mix, 14 + wi * 3), world: wi + 1,
+        map: makeClimbMap(rows, CR, UNLOCK.filter(([l]) => l <= wi * 7 + 3).map(([, k]) => k).filter(k => k !== 'puppy' && k !== 'bat'), [8, 11, 17, 21][wi]), world: wi + 1,
         // 문제 관문: 12줄마다 (지나가면 퀴즈, 틀리면 가시가 더 빨라짐)
         climb: { time: 80 - wi * 5, hazard: wi % 2 === 0 ? 'thorn' : 'poison', speed: 12 + wi * 2, accel: 0.25 + wi * 0.04,
           gates: Array.from({ length: Math.floor((rows - 16) / 12) }, (_, k) => rows - 10 - k * 12).filter(r => r > 6) },
