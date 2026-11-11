@@ -306,12 +306,21 @@
       });
       [this.frags, this.poops, this.waves].forEach(g => g.getChildren().forEach(o => { if (o.active) { o.onSlope = this.stickToSlope(o.body, !!o.onSlope); if (!o.onSlope) this.blockSlopeUnderside(o.body); } }));
       // 탄은 경사로(대각선 발판)를 뚫지 못함: 띠에 닿으면 터짐 (도토리탄은 위에 올라타면 계속 굴러감)
+      // 지난 프레임 위치 → 지금 위치 사이를 촘촘히 검사 (빠른 물방울탄이 한 프레임에 띠를 건너뛰지 않게)
+      const crossed = (o) => {
+        const x0 = o.px === undefined ? o.x : o.px, y0 = o.py === undefined ? o.y : o.py;
+        const n = Math.max(1, Math.ceil(Math.hypot(o.x - x0, o.y - y0) / 3));
+        let hit = false;
+        for (let i = 1; i <= n && !hit; i++) hit = this.slopeHit(x0 + (o.x - x0) * i / n, y0 + (o.y - y0) * i / n);
+        o.px = o.x; o.py = o.y;
+        return hit;
+      };
       this.seeds.getChildren().slice().forEach(sd => {
         if (!sd.active) return;
-        if (sd.mode === 'roll' && this.stickToSlope(sd.body)) return;
-        if (!(this.onSlope && this.time.now - sd.bornAt < 150) && this.slopeHit(sd.x, sd.y)) { this.fxLeaf.explode(3, sd.x, sd.y); sd.destroy(); }
+        if (sd.mode === 'roll' && this.stickToSlope(sd.body)) { sd.px = sd.x; sd.py = sd.y; return; }
+        if (crossed(sd)) { this.fxLeaf.explode(3, sd.x, sd.y); sd.destroy(); }
       });
-      this.eshots.getChildren().slice().forEach(sh => { if (sh.active && !sh.isShock && this.slopeHit(sh.x, sh.y)) this.popShot(sh); });
+      this.eshots.getChildren().slice().forEach(sh => { if (sh.active && !sh.isShock && crossed(sh)) this.popShot(sh); });
     }
 
     addBody(x, y, w, h, oneWay) {
@@ -635,6 +644,7 @@
         s.body.setSize(8, 8);
         s.isSeed = true; s.mode = mode; s.dir = dir; s.bornAt = time; s.startX = sx; s.dmg = this.S.dmg + (power ? 1 : 0);
         s.pierceLeft = this.S.pierce || 0; s.hitSet = [];
+        s.px = p.x; s.py = sy;   // 경사로 검사는 캐릭터 몸에서부터 (바로 앞 경사로를 넘어 생기지 않게)
         if (mode === 'line') {
           // 물방울: 중력 없이 일직선. 여러 발이면 위아래로 살짝 퍼짐
           s.body.setAllowGravity(false);
