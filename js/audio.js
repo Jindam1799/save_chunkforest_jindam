@@ -188,19 +188,21 @@
     squish() { noise({ d: 0.15, v: 0.2, f: 500, f2: 150 }); tone({ f: 260, f2: 90, d: 0.18, v: 0.12, type: 'sine', vib: 30 }); },
     warn() { tone({ f: 880, d: 0.06, v: 0.1 }); tone({ f: 660, d: 0.08, t: 0.08, v: 0.1 }); },
     // 보물상자: 덜컹덜컹(기대) → 보물 팡파르 / 꽝 뿌우~ 슬픈 트롬본
-    rattle() { [0, 0.09, 0.18, 0.27, 0.36].forEach((t, i) => { noise({ d: 0.05, t, v: 0.1, f: 900 + i * 150, filter: 'bandpass' }); tone({ f: 180 + i * 20, d: 0.04, t, v: 0.05, type: 'square' }); }); },
+    rattle() { [0, 0.09, 0.18, 0.27, 0.36].forEach((t, i) => { noise({ d: 0.06, t, v: 0.26, f: 900 + i * 150, filter: 'bandpass' }); tone({ f: 180 + i * 20, d: 0.05, t, v: 0.14, type: 'square' }); }); },
     treasure(big) {
-      noise({ d: 0.12, v: 0.12, f: 2500, filter: 'bandpass' });
-      arp('lead', [72, 76, 79, 84, 88], 0.07, 0.11, 0.13);
-      play('lead', 0.38, big ? 96 : 91, 0.35, 0.13);
-      arp('pluck', [96, 100, 103, 108], 0.05, 0.08);
-      if (big) { arp('pluck', [84, 88, 91, 96, 100, 103, 108], 0.04, 0.1); arp('bass', [48, 55, 60, 67], 0.12, 0.2, 0.18); }
+      noise({ d: 0.14, v: 0.3, f: 2500, filter: 'bandpass' });
+      tone({ f: 523, f2: 1046, d: 0.12, v: 0.2, type: 'square' });
+      arp('lead', [72, 76, 79, 84, 88], 0.07, 0.26, 0.14);
+      play('lead', 0.38, big ? 96 : 91, 0.45, 0.28);
+      arp('pluck', [96, 100, 103, 108], 0.05, 0.22);
+      [0.4, 0.5, 0.6].forEach(t => tone({ f: 2093 + t * 400, d: 0.08, t, v: 0.1, type: 'sine' }));   // 반짝반짝
+      if (big) { arp('pluck', [84, 88, 91, 96, 100, 103, 108], 0.04, 0.24); arp('bass', [48, 55, 60, 67], 0.12, 0.38, 0.2); }
     },
     dud() {
-      tone({ f: 180, f2: 120, d: 0.25, v: 0.07, type: 'square' });   // 끼이익 (천천히 열림)
-      [[392, 0.3], [370, 0.62], [349, 0.94]].forEach(([f, t]) => tone({ f, d: 0.28, t, v: 0.11, type: 'sawtooth', vib: 6 }));
-      tone({ f: 330, f2: 262, d: 0.7, t: 1.26, v: 0.12, type: 'sawtooth', vib: 10, slide: 0.6 });
-      noise({ d: 0.25, t: 0.3, v: 0.06, f: 400 });
+      tone({ f: 180, f2: 120, d: 0.25, v: 0.18, type: 'square' });   // 끼이익 (천천히 열림)
+      [[392, 0.3], [370, 0.62], [349, 0.94]].forEach(([f, t]) => tone({ f, d: 0.28, t, v: 0.26, type: 'sawtooth', vib: 6 }));
+      tone({ f: 330, f2: 262, d: 0.75, t: 1.26, v: 0.3, type: 'sawtooth', vib: 10, slide: 0.6 });
+      noise({ d: 0.3, t: 0.3, v: 0.16, f: 400 });
     },
     bosshit() { noise({ d: 0.4, v: 0.35, f: 2500, f2: 100 }); tone({ f: 90, f2: 30, d: 0.4, v: 0.3, type: 'square' }); arp('lead', [79, 72], 0.08, 0.1); }
   };
@@ -252,12 +254,15 @@
       }
       return bars;
     };
-    const A = makeBars(5, 5), B = makeBars(8, 7);
+    const A = makeBars(5, 5), B = makeBars(8, 7), C = makeBars(3, 4);
     const A2 = A.map((bar, i) => i === 3 ? bar.map(([s, l, d], k) => [s, l, k === bar.length - 1 ? d + 2 : d]) : bar);
-    const form = [A, A2, B, A];
+    const B2 = B.map(bar => bar.map(([s, l, d]) => [s, l, d + 1]));
+    // 곡을 두 배로: A A' B A | C C B' A (같은 마디가 너무 자주 반복되지 않게)
+    const form = [A, A2, B, A, C, C, B2, A2];
+    const leadTwo = { 2: 1, 4: 1, 6: 1 };
     form.forEach((sec, si) => sec.forEach((bar, bi) => {
       const base = (si * 4 + bi) * BAR;
-      const inst = si === 2 ? st.lead2 : st.lead;
+      const inst = leadTwo[si] ? st.lead2 : st.lead;
       bar.forEach(([s, l, d]) => ev.push([base + s, inst, deg(d), l, inst === 'pluck' ? 0.16 : inst === 'flute' ? 0.13 : 0.09]));
       // 화음/베이스/드럼
       const chordRoot = st.root - 24 + prog[bi % 4] + (si === 2 ? 0 : 0);
@@ -269,7 +274,7 @@
       else [[0, 0], [8, 7]].forEach(([s, o]) => ev.push([base + s, 'bass', chordRoot + o, 7, 0.25]));
       if (st.pad) [0, third, 7].forEach(o => ev.push([base, 'pad', chordRoot + 24 + o, 15, 0.035]));
       if (st.arp && si !== 0) for (let s = 0; s < 16; s += 2) ev.push([base + s, 'pluck', chordRoot + 36 + [0, third, 7, 12][(s / 2) % 4], 1, 0.05]);
-      const last = (si === 3 && bi === 3);
+      const last = (si === form.length - 1 && bi === 3);
       const D = st.drums;
       if (D === 'pop') { [0, 8].forEach(s => ev.push([base + s, 'kick', 0, 0, 0.5])); [4, 12].forEach(s => ev.push([base + s, 'snare', 0, 0, 0.3])); for (let s = 2; s < 16; s += 4) ev.push([base + s, 'hat', 0, 0, 0.07]); }
       else if (D === 'rock') { [0, 6, 8, 10].forEach(s => ev.push([base + s, 'kick', 0, 0, 0.5])); [4, 12].forEach(s => ev.push([base + s, 'snare', 0, 0, 0.32])); for (let s = 0; s < 16; s += 2) ev.push([base + s, 'hat', 0, 0, 0.06]); }
@@ -277,22 +282,30 @@
       else if (D === 'soft') { ev.push([base, 'kick', 0, 0, 0.35]); ev.push([base + 8, 'hat', 0, 0, 0.08, 1]); ev.push([base + 12, 'snare', 0, 0, 0.12]); }
       if (last && D) [12, 13, 14, 15].forEach(s => ev.push([base + s, 'snare', 0, 0, 0.2 + (s - 12) * 0.04]));
     }));
-    return { bpm: st.bpm, steps: 4 * 4 * BAR, ev };
+    return { bpm: st.bpm, steps: form.length * 4 * BAR, ev };
   }
 
   /* ───────── 재생기 ───────── */
   let song = null, timer = null, stepIdx = 0, nextT = 0, tempoMul = 1, byStep = null, pendingSpec = null;
+  let lastResumeTry = 0;
   function schedule() {
     if (!ctx || !song) return;
-    if (ctx.state !== 'running') return;
+    if (ctx.state !== 'running') {
+      // 휴대폰에서 중국어 발음(TTS)·전화·다른 앱 소리 때문에 멈췄으면 다시 깨움
+      const now = Date.now();
+      if (!document.hidden && now - lastResumeTry > 800) { lastResumeTry = now; ctx.resume().catch(() => {}); }
+      return;
+    }
     const stepDur = 60 / (song.bpm * tempoMul) / 4;
     if (nextT < ctx.currentTime - 0.2) nextT = ctx.currentTime + 0.05;   // 멈춰 있다가 다시 시작될 때 밀린 음을 한꺼번에 내지 않음
     while (nextT < ctx.currentTime + 0.15) {
       const list = byStep[stepIdx % song.steps];
       if (list && !muted && bgmVol > 0) list.forEach(([, inst, n, len, v, open]) => {
-        if (inst === 'kick' || inst === 'snare') INST[inst](nextT, v, musicBus);
-        else if (inst === 'hat') INST.hat(nextT, v, musicBus, open);
-        else INST[inst](nextT, midi(n), len * stepDur, v, musicBus);
+        try {   // 음 하나가 실패해도 곡이 그 자리에 멈추지 않게
+          if (inst === 'kick' || inst === 'snare') INST[inst](nextT, v, musicBus);
+          else if (inst === 'hat') INST.hat(nextT, v, musicBus, open);
+          else if (INST[inst]) INST[inst](nextT, midi(n), len * stepDur, v, musicBus);
+        } catch (e) { /* 건너뜀 */ }
       });
       nextT += stepDur; stepIdx++;
     }
@@ -341,6 +354,7 @@
     },
     setTempo(mul) { tempoMul = mul || 1; },
     get playing() { return !!(song && timer); },
+    get step() { return stepIdx; },   // (진단용) 지금까지 진행한 박자 수
     get muted() { return muted; },
     toggleMute() {
       muted = !muted;
@@ -361,6 +375,8 @@
         const u = new window.SpeechSynthesisUtterance(text);
         u.lang = 'zh-CN'; u.rate = 0.8; u.pitch = 1.1;
         if (zhVoice || pickVoice()) u.voice = zhVoice;
+        const wake = () => { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); };
+        u.onend = wake; u.onerror = wake; setTimeout(wake, 1500);   // 발음이 끝나면 음악을 다시 깨움
         window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
         return true;
       } catch (e) { return false; }

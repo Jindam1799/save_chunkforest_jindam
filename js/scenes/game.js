@@ -2493,6 +2493,15 @@
       this.scene.start(n.key, n.data);
     }
 
+    // 음악이 어떤 이유로든 꺼져 있으면 다시 켬 (보스 처치·클리어·죽음·일시정지 때는 제외)
+    musicWatchdog(time) {
+      if (time < (this.nextMusicCheck || 0)) return;
+      this.nextMusicCheck = time + 1000;
+      if (!this.started || this.cleared || this.dead || this.isPaused || this.climbQuiz || (this.boss && this.boss.state === 'dead')) return;
+      if (DT.Audio.muted || DT.Audio.playing) return;
+      DT.Audio.music(true, this.musicSpec);
+    }
+
     togglePause() {
       this.isPaused = !this.isPaused;
       if (this.isPaused) {
@@ -2515,6 +2524,7 @@
       time = this.time.now;
       if (this.climbQuiz) { if (!this.climbQuiz.answered) this.updateClimbQuiz(time); this.syncScreenLayer(); return; }
 
+      this.musicWatchdog(time);
       this.applySlopes();
       if (this.wrap) this.wrapAround();
       this.checkChestHint();

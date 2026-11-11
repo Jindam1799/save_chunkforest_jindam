@@ -3,7 +3,7 @@
   'use strict';
   const DT = (window.DT = window.DT || {});
 
-  DT.VERSION = '0.7.4';
+  DT.VERSION = '0.7.5';
   DT.W = 320;   // 논리 해상도 (16px 타일 20 x 15)
   DT.H = 240;
   DT.TILE = 16;
